@@ -2,11 +2,25 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from datetime import datetime
+import sqlite3
+from pathlib import Path
 
 app = FastAPI()
 
-# Stockage en mémoire
-results = []
+DB_PATH = Path("data/results.db")
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+conn.execute("""
+CREATE TABLE IF NOT EXISTS results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t REAL,
+    anomaly_ratio REAL,
+    leak_detected INTEGER,
+    timestamp TEXT
+)
+""")
+conn.commit()
 
 class Result(BaseModel):
     t: float
@@ -15,25 +29,33 @@ class Result(BaseModel):
 
 @app.post("/results")
 def push_result(r: Result):
-    results.append({**r.dict(), "timestamp": datetime.now().isoformat()})
+    conn.execute(
+        "INSERT INTO results (t, anomaly_ratio, leak_detected, timestamp) VALUES (?, ?, ?, ?)",
+        (r.t, r.anomaly_ratio, int(r.leak_detected), datetime.now().isoformat())
+    )
+    conn.commit()
     return {"ok": True}
 
 @app.get("/results")
 def get_results():
-    return results
+    rows = conn.execute("SELECT t, anomaly_ratio, leak_detected, timestamp FROM results ORDER BY id").fetchall()
+    return [
+        {"t": t, "anomaly_ratio": ar, "leak_detected": bool(ld), "timestamp": ts}
+        for t, ar, ld, ts in rows
+    ]
 
 @app.get("/results/latest")
 def get_latest():
-    if not results:
+    row = conn.execute("SELECT t, anomaly_ratio, leak_detected, timestamp FROM results ORDER BY id DESC LIMIT 1").fetchone()
+    if not row:
         return {"message": "Pas encore de résultats"}
-    return results[-1]
+    t, ar, ld, ts = row
+    return {"t": t, "anomaly_ratio": ar, "leak_detected": bool(ld), "timestamp": ts}
 
 @app.get("/status")
 def get_status():
-    if not results:
+    row = conn.execute("SELECT leak_detected, timestamp FROM results ORDER BY id DESC LIMIT 1").fetchone()
+    if not row:
         return {"running": False, "leak_detected": False}
-    return {
-        "running": True,
-        "leak_detected": results[-1]["leak_detected"],
-        "last_update": results[-1]["timestamp"]
-    }
+    ld, ts = row
+    return {"running": True, "leak_detected": bool(ld), "last_update": ts}

@@ -4,6 +4,7 @@ import numpy as np, pandas as pd, joblib
 from pathlib import Path
 from scipy import signal
 import requests
+import argparse
 
 # ---------- CONFIG ----------
 FS = 25600
@@ -23,7 +24,13 @@ NL_FILES = [
     "No-leak/BR_NL_0.47 LPS_A1.parquet",
     "No-leak/BR_NL_0.18 LPS_A1.parquet",
 ]
-LEAK_FILE = "Circumferential Crack/BR_CC_0.18 LPS_A1.parquet"
+# LEAK_FILE = "Circumferential Crack/BR_CC_0.18 LPS_A1.parquet"
+
+SCENARIOS = {
+    "ideal": "Circumferential Crack/BR_CC_ND_A1.parquet",
+    "difficile": "Gasket Leak/BR_GL_0.47 LPS_A1.parquet",
+    "bruite": "Longitudinal Crack/BR_LC_Transient_A1.parquet",
+}
 
 # ---------- FEATURES ----------
 def extract_features(window, fs):
@@ -48,8 +55,15 @@ def features_from_chunk(chunk, fs):
 # ---------- BUILD SIGNAL ----------
 def load(path): return pd.read_parquet(PARQUET_DIR/path)["Value"].values
 
-def build_signal():
-    parts = [load(f) for f in NL_FILES] + [load(LEAK_FILE), load(LEAK_FILE)]
+# def build_signal():
+#     parts = [load(f) for f in NL_FILES] + [load(LEAK_FILE), load(LEAK_FILE)]
+#     sig = np.concatenate(parts)
+#     leak_start = sum(len(load(f)) for f in NL_FILES)
+#     return sig, leak_start 
+
+def build_signal(scenario="ideal"):
+    leak_file = SCENARIOS[scenario]
+    parts = [load(f) for f in NL_FILES] + [load(leak_file), load(leak_file)]
     sig = np.concatenate(parts)
     leak_start = sum(len(load(f)) for f in NL_FILES)
     return sig, leak_start
@@ -65,11 +79,11 @@ class Sim:
         # 1 "tick réel" = 1s simulée, accéléré ici
         while self.running and self.pos < len(self.sig):
             self.pos += FS  # +1s de points
-            time.sleep(0.05)  # accélère la démo (1s simulée = 50ms réelles)
+            time.sleep(0.1)  # accélère la démo (1s simulée = 50ms réelles)
 
     def analyze_loop(self):
         while self.running and self.pos < len(self.sig):
-            time.sleep(TICK_SEC*0.05)  # même accélération
+            time.sleep(TICK_SEC*0.1)  # même accélération
             end = self.pos
             start = max(0, end - CHUNK_SEC*FS)
             chunk = self.sig[start:end]
@@ -94,11 +108,23 @@ class Sim:
                 pass          
         self.running = False
 
-def main():
+# def main():
+#     model = joblib.load("models/isolation_forest.pkl")
+#     scaler = joblib.load("models/scaler.pkl")
+#     sig, leak_start = build_signal()
+#     print(f"Signal: {len(sig)/FS:.0f}s | fuite injectée à t={leak_start/FS:.0f}s\n")
+#     sim = Sim(sig, leak_start, model, scaler)
+#     t1 = threading.Thread(target=sim.stream)
+#     t2 = threading.Thread(target=sim.analyze_loop)
+#     t1.start(); t2.start()
+#     t1.join(); t2.join()
+#     print("\nSimulation terminée.")
+
+def main(scenario="ideal"):
     model = joblib.load("models/isolation_forest.pkl")
     scaler = joblib.load("models/scaler.pkl")
-    sig, leak_start = build_signal()
-    print(f"Signal: {len(sig)/FS:.0f}s | fuite injectée à t={leak_start/FS:.0f}s\n")
+    sig, leak_start = build_signal(scenario)
+    print(f"Scénario: {scenario} | Signal: {len(sig)/FS:.0f}s | fuite à t={leak_start/FS:.0f}s\n")
     sim = Sim(sig, leak_start, model, scaler)
     t1 = threading.Thread(target=sim.stream)
     t2 = threading.Thread(target=sim.analyze_loop)
@@ -107,4 +133,7 @@ def main():
     print("\nSimulation terminée.")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scenario", default="ideal", choices=SCENARIOS.keys())
+    args = parser.parse_args()
+    main(args.scenario)

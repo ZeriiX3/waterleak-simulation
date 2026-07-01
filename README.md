@@ -19,7 +19,15 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Télécharge automatiquement les données depuis HuggingFace, lance l'API sur `http://localhost:8000` et démarre la simulation.
+Lance le scénario `ideal` par défaut. Télécharge automatiquement les données depuis HuggingFace, démarre l'API sur `http://localhost:8000` et lance la simulation.
+
+### Choisir un scénario
+
+```bash
+python main.py --scenario ideal       # signal propre, fuite franche
+python main.py --scenario difficile   # fort débit, fuite subtile
+python main.py --scenario bruite      # signal transitoire, cas limite
+```
 
 ## Endpoints API
 
